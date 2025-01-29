@@ -26,6 +26,13 @@ def load_data_train () :
     return load_data("../../data/raw/train_values.csv") , load_data('../../data/raw/train_labels.csv')
 
 
+def load_data_test () :
+    '''
+    This function loads the test data and outputs the values of the test data
+    '''
+    return load_data("../../data/raw/test_values.csv")
+
+
 def drop_row ( id_list, df_X , df_Y) :
     '''
     This function drops the rows based on the building id in both dataframes
