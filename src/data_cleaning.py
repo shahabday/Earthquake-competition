@@ -1,7 +1,7 @@
 
 import pandas as pd 
 import numpy as np 
-
+from scipy.stats import zscore
 
 
 def load_data (path) :
@@ -13,7 +13,6 @@ def load_data (path) :
     '''
     df = pd.read_csv(path)
     return df
-
 
 
 def load_data_train () :
@@ -40,6 +39,7 @@ def drop_row ( id_list, df_X , df_Y) :
     df_Y = df_Y[~df_Y.building_id.isin(id_list)]
     return df_X, df_Y
 
+
 def drop_duplicates (df_X, df_Y) :
     '''
     This function drops the duplicates in both dataframes
@@ -59,5 +59,18 @@ def drop_duplicates (df_X, df_Y) :
     return clean_x, clean_y
     
 
+def get_outliers_ids(df, z_level=3):
+    """
+    Remove outliers from the dataset using zscore.
+    """
+    df_no_id = df.drop(columns='building_id')
+    num_cols = df_no_id.select_dtypes(include='number')
+    df_z = num_cols.apply(zscore)
+    outliers = abs(df_z) > z_level
+    outliers_ids = df.iloc[np.where(outliers.any(axis=1))[0], :]['building_id']
 
+    print(f'tot number of outliers: {len(outliers_ids)}')
+    for col in df_z.columns:
+        print(f'- {col} - number of outliers: {len(df_z[abs(df_z[col]) > z_level])}')
 
+    return outliers_ids
