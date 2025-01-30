@@ -41,6 +41,7 @@ def pipeline_preprocessor (**kwargs) :
 
     standard_scaler_cols = kwargs.get('standard_scaler_cols', [])
     robust_scaler_cols = kwargs.get('robust_scaler_cols', [])
+    binary_enc_cols = kwargs.get('binary_enc_cols', [])
     baseN_enc_cols = kwargs.get('baseN_enc_cols', [])
     one_hot_cols = kwargs.get('one_hot_cols', [])
     ordinal_enc_cols = kwargs.get('ordinal_enc_cols', [])
@@ -52,6 +53,7 @@ def pipeline_preprocessor (**kwargs) :
             ('standard_scaler', StandardScaler(), standard_scaler_cols),
             ('robust_scaler', RobustScaler(), robust_scaler_cols),
             ('baseN_encoder', ce.BaseNEncoder(cols=baseN_enc_cols), baseN_enc_cols),
+            ('binary_encoder', ce.BinaryEncoder(cols=baseN_enc_cols), binary_enc_cols),
             #('ordinal_encoder', OrdinalEncoder(categories=[...], handle_unknown='use_encoded_value', unknown_value=-1), ordinal_enc_cols),
             ('one_hot_encoder', OneHotEncoder(), one_hot_cols),
         ])
