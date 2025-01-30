@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
 import seaborn as sns
-import missingno
+
 import os
 import random
 import pandas as pd
