@@ -45,6 +45,8 @@ def pipeline_preprocessor (**kwargs) :
     baseN_enc_cols = kwargs.get('baseN_enc_cols', [])
     one_hot_cols = kwargs.get('one_hot_cols', [])
     ordinal_enc_cols = kwargs.get('ordinal_enc_cols', [])
+    target_enc_cols = kwargs.get('target_enc_cols' , [])
+
 
     # buiding pipeline based on existing arguments : 
 
@@ -55,7 +57,9 @@ def pipeline_preprocessor (**kwargs) :
             ('baseN_encoder', ce.BaseNEncoder(cols=baseN_enc_cols), baseN_enc_cols),
             ('binary_encoder', ce.BinaryEncoder(cols=baseN_enc_cols), binary_enc_cols),
             #('ordinal_encoder', OrdinalEncoder(categories=[...], handle_unknown='use_encoded_value', unknown_value=-1), ordinal_enc_cols),
+
             ('one_hot_encoder', OneHotEncoder(), one_hot_cols),
+            ('target_encoder' , ce.TargetEncoder(cols=target_enc_cols), target_enc_cols)
         ])
     
     return preprocessor

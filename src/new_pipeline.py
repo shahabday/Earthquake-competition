@@ -1,185 +1,164 @@
-import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler, RobustScaler, OneHotEncoder, FunctionTransformer
+import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.model_selection import KFold, train_test_split
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 import category_encoders as ce
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import f1_score, confusion_matrix
+from sklearn.base import BaseEstimator, TransformerMixin
 
-# --- Custom Transformer for KFold Target Encoding ---
-class TargetEncoderWrapper(BaseEstimator, TransformerMixin):
-    """
-    Custom transformer for target encoding using K-Fold strategy to prevent data leakage.
-    """
-    def __init__(self, cols=None, n_splits=5):
-        self.cols = cols
-        self.n_splits = n_splits
-        self.encoders = {}
 
-    def fit(self, X, y):
-        """Fits target encoding for each categorical column using KFold strategy."""
-        if y is None:
-            raise ValueError("Target `y` is required for Target Encoding.")
-        
-        self.encoders = {col: ce.TargetEncoder(cols=[col]) for col in self.cols}
+class FrequencyEncoder(BaseEstimator, TransformerMixin):
+    """Custom frequency encoder for categorical variables"""
+    def __init__(self, columns):
+        self.columns = columns
+        self.mappings = {}
 
-        for col in self.cols:
-            self.encoders[col].fit(X[[col]], y)
-
+    def fit(self, X, y=None):
+        self.mappings = {
+            col: X[col].value_counts(normalize=True) for col in self.columns
+        }
         return self
 
     def transform(self, X):
-        """Transforms the categorical features using the trained target encoding."""
-        X_encoded = X.copy()
-        for col in self.cols:
-            X_encoded[col] = self.encoders[col].transform(X[[col]]).values.flatten()
-        return X_encoded
+        X = X.copy()
+        for col in self.columns:
+            X[col] = X[col].map(self.mappings[col]).fillna(0)
+        return X
 
 
-# Fix for Frequency Encoding Output
-def frequency_encoding(df, cols):
-    """Applies frequency encoding and returns a 2D array."""
-    encoded_df = df.copy()
-    for col in cols:
-        freq_map = df[col].value_counts(normalize=True).to_dict()
-        encoded_df[col] = df[col].map(freq_map).fillna(0)
+class MLPipeline:
+    def __init__(self, 
+                 scalers=None, 
+                 encoders=None, 
+                 model=None):
+        """
+        Parameters:
+        - scalers: dict, mapping feature names to scaler types. 
+                   Example: {"age": "standard", "salary": "minmax"} 
+                   Supported scalers: ["standard", "minmax", "robust"]
+        - encoders: dict, mapping categorical feature names to encoding methods.
+                    Example: {"city": "onehot"}
+                    Supported methods: ["onehot", "binary", "basen", "target", "frequency"]
+        - model: scikit-learn model instance.
+        """
+        self.scalers = scalers if scalers else {}
+        self.encoders = encoders if encoders else {}
+        self.model = model
+        self.pipeline = None
 
-    return encoded_df[cols].to_numpy()  # Ensure it's a 2D NumPy array
+    def _get_scaler(self, scaler_type):
+        scalers = {
+            "standard": StandardScaler(),
+            "minmax": MinMaxScaler(),
+            "robust": RobustScaler()
+        }
+        return scalers.get(scaler_type, StandardScaler())
 
-def pipeline_preprocessor(df, y=None, **kwargs):
-    """
-    Creates a preprocessing pipeline with:
-    - Standard Scaler
-    - Robust Scaler
-    - BaseN Encoding
-    - One-Hot Encoding
-    - Frequency Encoding
-    - Target Encoding (KFold to avoid leakage)
-    - Binary Encoding
-    """
+    def _get_encoders(self, categorical_features):
+        transformers = []
+        for feature, encoding in self.encoders.items():
+            if encoding == "onehot":
+                transformers.append((f"onehot_{feature}", ce.OneHotEncoder(), [feature]))
+            elif encoding == "binary":
+                transformers.append((f"binary_{feature}", ce.BinaryEncoder(), [feature]))
+            elif encoding == "basen":
+                transformers.append((f"basen_{feature}", ce.BaseNEncoder(), [feature]))
+            elif encoding == "target":
+                transformers.append((f"target_{feature}", ce.TargetEncoder(), [feature]))
+            elif encoding == "frequency":
+                transformers.append((f"frequency_{feature}", FrequencyEncoder([feature]), [feature]))
+            else:
+                raise ValueError(f"Unknown encoding type: {encoding}")
 
-    # Validate columns before applying transformations
-    def validate_columns(col_list, df):
-        """Ensures all columns exist in DataFrame."""
-        if col_list:
-            for col in col_list:
-                if col not in df.columns:
-                    raise ValueError(f"Column '{col}' not found in DataFrame.")
-        return col_list
+        return transformers
 
-    # Extracting column lists and ensuring they are valid
-    standard_scaler_cols = validate_columns(kwargs.get('standard_scaler_cols', []), df)
-    robust_scaler_cols = validate_columns(kwargs.get('robust_scaler_cols', []), df)
-    baseN_enc_cols = validate_columns(kwargs.get('baseN_enc_cols', []), df)
-    one_hot_cols = validate_columns(kwargs.get('one_hot_cols', []), df)
-    frequency_enc_cols = validate_columns(kwargs.get('frequency_enc_cols', []), df)
-    target_enc_cols = validate_columns(kwargs.get('target_enc_cols', []), df)
-    binary_enc_cols = validate_columns(kwargs.get('binary_enc_cols', []), df)
+    def fit(self, X, y):
+        numerical_features = X.select_dtypes(include=[np.number]).columns.tolist()
+        categorical_features = [col for col in self.encoders.keys() if col in X.columns]
 
-    transformers = []
+        transformers = []
+        
+        # Apply different scalers to different numerical columns
+        for feature, scaler_type in self.scalers.items():
+            if feature in numerical_features:
+                transformers.append((f"scaler_{feature}", self._get_scaler(scaler_type), [feature]))
 
-    # Standard Scaler
-    if standard_scaler_cols:
-        transformers.append(('standard_scaler', StandardScaler(), standard_scaler_cols))
+        # Add encoders for categorical features
+        transformers.extend(self._get_encoders(categorical_features))
 
-    # Robust Scaler
-    if robust_scaler_cols:
-        transformers.append(('robust_scaler', RobustScaler(), robust_scaler_cols))
+        # Column transformer
+        preprocessor = ColumnTransformer(transformers, remainder="passthrough")
 
-    # BaseN Encoding
-    if baseN_enc_cols:
-        transformers.append(('baseN_encoder', ce.BaseNEncoder(cols=baseN_enc_cols), baseN_enc_cols))
+        # Full pipeline
+        self.pipeline = Pipeline([
+            ("preprocessor", preprocessor),
+            ("model", self.model)
+        ])
 
-    # One-Hot Encoding
-    if one_hot_cols:
-        transformers.append(('one_hot_encoder', OneHotEncoder(handle_unknown='ignore'), one_hot_cols))
+        self.pipeline.fit(X, y)
+        return self
 
-    # ✅ Corrected Frequency Encoding inside ColumnTransformer
-    if frequency_enc_cols:
-        transformers.append(('frequency_encoder', 
-                             FunctionTransformer(lambda X: frequency_encoding(pd.DataFrame(X, columns=frequency_enc_cols), frequency_enc_cols), 
-                                                 validate=False), 
-                             frequency_enc_cols))
+    def predict(self, X):
+        if self.pipeline:
+            return self.pipeline.predict(X)
+        else:
+            raise ValueError("Pipeline has not been fitted yet.")
 
-    # Target Encoding
-    if target_enc_cols:
-        if y is None:
-            raise ValueError("Target variable `y` is required for target encoding.")
-        transformers.append(('target_encoder', ce.TargetEncoder(cols=target_enc_cols), target_enc_cols))
+    def transform(self, X):
+        if self.pipeline:
+            return self.pipeline.named_steps["preprocessor"].transform(X)
+        else:
+            raise ValueError("Pipeline has not been fitted yet.")
 
-    # Binary Encoding
-    if binary_enc_cols:
-        transformers.append(('binary_encoder', ce.BinaryEncoder(cols=binary_enc_cols), binary_enc_cols))
+    def get_pipeline(self):
+        """Return the underlying scikit-learn pipeline"""
+        return self.pipeline
+    
+if __name__ == "__main__" :
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.model_selection import train_test_split
 
-    # Creating Column Transformer
-    preprocessor = ColumnTransformer(transformers, remainder='drop')
+    # Sample dataset
+    df = pd.DataFrame({
+        "age": [25, 32, 47, 51, 62],
+        "salary": [50000, 60000, 80000, 85000, 90000],
+        "height": [170, 175, 180, 165, 190],
+        "city": ["Berlin", "Berlin", "Munich", "Munich", "Hamburg"],
+        "purchased": [0, 1, 0, 1, 1]
+    })
 
-    return preprocessor
-
-# --- Classifier Pipeline ---
-def classifier_pipeline(preprocessor, model):
-    """
-    Returns a full pipeline with the preprocessor and model.
-    """
-    pipeline = Pipeline(steps=[
-        ('preprocessing', preprocessor),
-        ('classifier', model)
-    ])
-    return pipeline
-
-# --- Model Training ---
-def model_training(X_train, y_train, classifier_pipeline):
-    """
-    Trains the model using the pipeline.
-    """
-    classifier_pipeline.fit(X_train, y_train)
-    return classifier_pipeline
-
-# --- Main Execution ---
-if __name__ == '__main__':
-    # Dummy dataset
-    data = {
-        'age': [25, 30, 35, 40, 45],
-        'height': [160, 170, 180, 175, 165],
-        'kind': ['A', 'B', 'A', 'C', 'B'],
-        'type': ['X', 'Y', 'X', 'Z', 'Y'],
-        'geo_level_3_id': ['001', '002', '001', '003', '002'],
-        'is_concrete': [1, 0, 1, 1, 0]
+    # Define numerical scalers
+    scalers = {
+        "age": "standard",  # StandardScaler for age
+        "salary": "minmax",  # MinMaxScaler for salary
+        "height": "robust"   # RobustScaler for height
     }
-    df = pd.DataFrame(data)
-    y = pd.Series([0, 1, 0, 1, 1], name="target")  # Target column
 
-    # Splitting dataset
-    X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2, random_state=42, stratify=y)
+    # Define categorical encoding settings
+    encoders = {
+        "city": "onehot"  # Try "binary", "basen", "target", "frequency" as well
+    }
 
-    # Defining model
-    model = RandomForestClassifier(n_estimators=100, random_state=0)
+    # Train-test split
+    X = df.drop(columns=["purchased"])
+    y = df["purchased"]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Creating Preprocessor with Different Encodings
-    pre_proccessor = pipeline_preprocessor(
-        X_train, y_train,
-        standard_scaler_cols=['age', 'height'],
-        one_hot_cols=['kind', 'type'],
-        frequency_enc_cols=['geo_level_3_id'],
-        target_enc_cols=['geo_level_3_id'],
-        binary_enc_cols=['is_concrete']
+    # Initialize pipeline
+    pipeline = MLPipeline(
+        scalers=scalers, 
+        encoders=encoders,
+        model=RandomForestClassifier()
     )
 
-    # Creating pipeline
-    pipeline = classifier_pipeline(pre_proccessor, model)
+    # Fit pipeline
+    pipeline.fit(X_train, y_train)
 
-    # Model training
-    model_fit = model_training(X_train, y_train, pipeline)
+    # Make predictions
+    predictions = pipeline.predict(X_test)
 
-    # Prediction
-    y_pred = model_fit.predict(X_test)
+    # Transform dataset (without model prediction)
+    transformed_X = pipeline.transform(X_test)
 
-    # Evaluation
-    score = f1_score(y_test, y_pred, average='micro')
-    print(f"F1 Score: {score}")
-
-    print("Confusion Matrix:")
-    print(confusion_matrix(y_test, y_pred))
+    print("Predictions:", predictions)
+    print("Transformed Data:\n", pd.DataFrame(transformed_X))
