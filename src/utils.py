@@ -1,4 +1,7 @@
+from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
+import seaborn as sns   
+import numpy as np
 
 
 def get_hist(df, hist_x_row=4, figsize=(20,40)):
@@ -24,3 +27,17 @@ def convert_to_object(df):
         if len(df[col].unique()) == 2:
             df[col] = df[col].astype('object')
     return df 
+
+
+def print_confusion_matrix(pred, true):
+    cm = confusion_matrix(true, pred)
+    cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+
+    # Plot the confusion matrix using a heatmap
+    sns.heatmap(cm_normalized, annot=True, fmt=".2f", cmap="Blues", 
+                xticklabels=['Class 0', 'Class 1', 'Class 2'],
+                yticklabels=['Class 0', 'Class 1', 'Class 2']) 
+
+    plt.xlabel('Predicted labels')
+    plt.ylabel('True labels') 
+    plt.title('Confusion Matrix')
