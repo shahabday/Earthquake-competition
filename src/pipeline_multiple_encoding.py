@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler,FunctionTransformer
 import category_encoders as ce
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -25,6 +25,16 @@ class FrequencyEncoder(BaseEstimator, TransformerMixin):
             X[col] = X[col].map(self.mappings[col]).fillna(0)
         return X
 
+class NamedFunctionTransformer(FunctionTransformer):
+    """Custom FunctionTransformer that implements get_feature_names_out"""
+    def __init__(self, func, inverse_func=None, feature_names_out=None, **kwargs):
+        super().__init__(func=func, inverse_func=inverse_func, **kwargs)
+        self.feature_names_out = feature_names_out
+
+    def get_feature_names_out(self, input_features=None):
+        if input_features is None:
+            return self.feature_names_out
+        return [f"{feature}_log" for feature in input_features]
 
 class MLPipeline:
     def __init__(self, scalers=None, encoders=None, model=None):
@@ -47,7 +57,8 @@ class MLPipeline:
         scalers = {
             "standard": StandardScaler(),
             "minmax": MinMaxScaler(),
-            "robust": RobustScaler()
+            "robust": RobustScaler(),
+            "log" : NamedFunctionTransformer(np.log1p)
         }
         return scalers.get(scaler_type, StandardScaler())
 
